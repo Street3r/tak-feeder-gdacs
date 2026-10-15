@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -38,6 +39,7 @@ class Settings:
     """Feeder settings from the environment (see .env.example)."""
 
     update_interval: float = 60.0
+    fetch_interval: float = 600.0
     url: str = RSS_URL
     alert_levels: str = ""
     timezone: str = "Europe/Helsinki"
@@ -50,6 +52,7 @@ class Settings:
         return cls(
             update_interval=max(60.0, env_float("UPDATE_INTERVAL", d.update_interval,
                                                 "GDACS_PULL_INTERVAL")),
+            fetch_interval=max(60.0, env_float("FETCH_INTERVAL", d.fetch_interval)),
             url=env("GDACS_URL", d.url),
             alert_levels=env("GDACS_ALERT_LEVELS", ""),
             timezone=env("TIMEZONE", d.timezone),
@@ -70,7 +73,12 @@ def _date(value: str) -> Optional[datetime]:
 
 
 class GdacsSource:
-    """Fetches the GDACS RSS feed every round."""
+    """Fetches the GDACS RSS feed every FETCH_INTERVAL and sends the current
+    events every round with a fresh time, so a client that connects sees them
+    within one round. A failed fetch is retried the next round; the last good
+    feed is sent for at most CACHE_ROUNDS fetch intervals."""
+
+    CACHE_ROUNDS = 3
 
     def __init__(self, settings: Settings, health: Optional[Health] = None) -> None:
         self.s = settings
@@ -79,6 +87,8 @@ class GdacsSource:
         self.levels = {lvl.strip().lower() for lvl in settings.alert_levels.split(",")
                        if lvl.strip()}
         self.headers = {"User-Agent": f"tak-feeder-gdacs/{__version__}"}
+        self.feed = b""
+        self.feed_at: Optional[float] = None  # monotonic time of the last good fetch
 
     def item_event(self, item: ET.Element) -> Optional[bytes]:
         """CoT for one current event, or None if it is skipped or broken."""
@@ -150,18 +160,30 @@ class GdacsSource:
                 events.append(event)
         return events
 
-    async def events(self) -> list[bytes]:
-        """Source protocol: fetch and convert."""
+    async def _fetch(self, mono: float) -> None:
         try:
-            events = self.parse(await fetch(self.s.url, self.headers, timeout=60))
+            body = await fetch(self.s.url, self.headers, timeout=60)
+            ET.fromstring(body)
         except Exception as exc:  # noqa: BLE001  pylint: disable=broad-exception-caught
             LOG.warning("GDACS feed failed: %s", exc)
             if self.health is not None:
                 self.health.error()
-            return []
+            return
+        self.feed, self.feed_at = body, mono
         if self.health is not None:
             self.health.ok()
-        LOG.info("GDACS: %d current events", len(events))
+
+    async def events(self) -> list[bytes]:
+        """Source protocol: fetch when due, then convert the latest feed."""
+        mono = time.monotonic()
+        fetched = self.feed_at is None or mono - self.feed_at >= self.s.fetch_interval
+        if fetched:
+            await self._fetch(mono)
+        if self.feed_at is None or mono - self.feed_at > self.CACHE_ROUNDS * self.s.fetch_interval:
+            return []
+        events = self.parse(self.feed)
+        if fetched:
+            LOG.info("GDACS: %d current events", len(events))
         return events
 
     async def start(self) -> None:

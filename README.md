@@ -31,10 +31,11 @@ Only current events are sent. Events with missing coordinates are skipped.
 | `COT_URL` | `udp://239.2.3.1:6969` | TAK server. Old name `REMOTE_SERVER_URL` works |
 | `PYTAK_TLS_CLIENT_CERT` / `PYTAK_TLS_CLIENT_KEY` | | Client certificate and unencrypted key (PEM). Old names `REMOTE_SSL_USER_CERTIFICATE` / `REMOTE_SSL_USER_KEY` work |
 | `PYTAK_TLS_DONT_VERIFY` | `0` | `1` = do not verify the server certificate |
-| `UPDATE_INTERVAL` | `60` | Seconds between reads, min 60 (old name `GDACS_PULL_INTERVAL`) |
+| `UPDATE_INTERVAL` | `60` | Seconds between send rounds, min 60 (old name `GDACS_PULL_INTERVAL`); each round re-sends the current events |
+| `FETCH_INTERVAL` | `600` | Seconds between feed reads, min 60. A failed read is retried the next round; the last good feed is sent for at most 3 fetch intervals |
 | `GDACS_ALERT_LEVELS` | (all) | e.g. `Orange,Red` |
 | `TIMEZONE` | `Europe/Helsinki` | Time zone of the published time |
-| `HEALTH_MAX_ERRORS` | `3` | Failed reads in a row before the container is unhealthy |
+| `HEALTH_MAX_ERRORS` | `3` | Failed feed reads in a row before the container is unhealthy |
 | `DEBUG` | `0` | Debug logging |
 
 `UUID` and `LOGCOT` of the old feeder are no longer used.
@@ -86,6 +87,10 @@ Changes in this fork (Street3r):
   - Every event of a send round reaches TAK. pytak's send queue holds 100
     events and dropped the oldest when full, so rounds of more than 100
     lost the rest.
+  - Reading and sending are separate: the feed is read every
+    `FETCH_INTERVAL` (600 s) and the current events are re-sent every
+    `UPDATE_INTERVAL` (60 s), so the feed is read less often while a client
+    that connects still sees the events within a minute.
 
 ## License
 

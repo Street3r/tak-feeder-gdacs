@@ -66,6 +66,26 @@ class GdacsTest(unittest.TestCase):
         with mock.patch.object(feeder, "fetch", mock.AsyncMock(side_effect=OSError("x"))):
             self.assertEqual(asyncio.run(src.events()), [])
 
+    def test_fetches_every_fetch_interval_and_resends_between(self) -> None:
+        src = feeder.GdacsSource(feeder.Settings(fetch_interval=600))
+        clock = mock.Mock(return_value=1000.0)
+        with mock.patch.object(feeder.time, "monotonic", clock):
+            up = mock.AsyncMock(return_value=feed(item()))
+            with mock.patch.object(feeder, "fetch", up):
+                self.assertEqual(len(asyncio.run(src.events())), 1)
+                clock.return_value = 1060.0
+                self.assertEqual(len(asyncio.run(src.events())), 1)  # from the cache
+                self.assertEqual(up.await_count, 1)
+            down = mock.AsyncMock(side_effect=OSError("x"))
+            with mock.patch.object(feeder, "fetch", down):
+                clock.return_value = 1600.0
+                self.assertEqual(len(asyncio.run(src.events())), 1)
+                clock.return_value = 1660.0  # retried every round
+                self.assertEqual(len(asyncio.run(src.events())), 1)
+                self.assertEqual(down.await_count, 2)
+                clock.return_value = 2801.0  # last good fetch 3 fetch intervals ago
+                self.assertEqual(asyncio.run(src.events()), [])
+
     def test_legacy_interval(self) -> None:
         with mock.patch.dict("os.environ", {"GDACS_PULL_INTERVAL": "30"}, clear=True):
             self.assertEqual(feeder.Settings.from_env().update_interval, 60.0)  # min 60
