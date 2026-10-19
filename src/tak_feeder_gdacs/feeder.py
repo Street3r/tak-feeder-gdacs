@@ -9,18 +9,19 @@ import logging
 import math
 import time
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 from . import __version__
-from .common import Health, cot_event, env, env_float, fetch, remarks_text
+from .common import Health, SendPolicy, cot_event, env, env_float, fetch, remarks_text
 
 LOG = logging.getLogger("tak_feeder_gdacs")
 
 RSS_URL = "https://www.gdacs.org/xml/rss.xml"
+MIN_FETCH_INTERVAL = 600.0  # GDACS gives no limit; the feed changes slowly
 NS = {"gdacs": "http://www.gdacs.org", "geo": "http://www.w3.org/2003/01/geo/wgs84_pos#"}
 SHAPES = "ad78aafb-83a6-4c07-b2b9-a897a8b6a38f/Shapes/"
 EVENTS = {  # type -> (name, icon), as in upstream
@@ -38,8 +39,8 @@ COLORS = {"Green": "-16711936", "Orange": "-35072", "Red": "-65535"}
 class Settings:
     """Feeder settings from the environment (see .env.example)."""
 
-    update_interval: float = 60.0
-    fetch_interval: float = 600.0
+    send: SendPolicy = field(default_factory=SendPolicy)
+    fetch_interval: float = MIN_FETCH_INTERVAL
     url: str = RSS_URL
     alert_levels: str = ""
     timezone: str = "Europe/Helsinki"
@@ -47,12 +48,17 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        """Read settings (old name GDACS_PULL_INTERVAL still accepted)."""
+        """Read settings (old names UPDATE_INTERVAL and GDACS_PULL_INTERVAL
+        still accepted for SEND_STATIC_INTERVAL)."""
         d = cls()
+        fetch_interval = env_float("FETCH_INTERVAL", d.fetch_interval)
+        if fetch_interval < MIN_FETCH_INTERVAL:
+            LOG.warning("FETCH_INTERVAL %.0f s is below the minimum, using %.0f s",
+                        fetch_interval, MIN_FETCH_INTERVAL)
         return cls(
-            update_interval=max(60.0, env_float("UPDATE_INTERVAL", d.update_interval,
-                                                "GDACS_PULL_INTERVAL")),
-            fetch_interval=max(60.0, env_float("FETCH_INTERVAL", d.fetch_interval)),
+            send=SendPolicy.from_env(moving_aliases=(), stationary_aliases=(),
+                                     static_aliases=("UPDATE_INTERVAL", "GDACS_PULL_INTERVAL")),
+            fetch_interval=max(MIN_FETCH_INTERVAL, fetch_interval),
             url=env("GDACS_URL", d.url),
             alert_levels=env("GDACS_ALERT_LEVELS", ""),
             timezone=env("TIMEZONE", d.timezone),
@@ -139,7 +145,7 @@ class GdacsSource:
             callsign=callsign,
             remarks=remarks_text(lines, self.s.source_line,
                                  ("GDACS", "disaster", name.lower().replace(" ", ""))),
-            stale=self.s.update_interval * 3,
+            stale=self.s.send.stale_for(self.s.send.static),
             how="m-r",
             ce=ce,
             icon=SHAPES + icon,

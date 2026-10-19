@@ -31,8 +31,9 @@ Only current events are sent. Events with missing coordinates are skipped.
 | `COT_URL` | `udp://239.2.3.1:6969` | TAK server. Old name `REMOTE_SERVER_URL` works |
 | `PYTAK_TLS_CLIENT_CERT` / `PYTAK_TLS_CLIENT_KEY` | | Client certificate and unencrypted key (PEM). Old names `REMOTE_SSL_USER_CERTIFICATE` / `REMOTE_SSL_USER_KEY` work |
 | `PYTAK_TLS_DONT_VERIFY` | `0` | `1` = do not verify the server certificate |
-| `UPDATE_INTERVAL` | `60` | Seconds between send rounds, min 60 (old name `GDACS_PULL_INTERVAL`); each round re-sends the current events |
-| `FETCH_INTERVAL` | `600` | Seconds between feed reads, min 60. A failed read is retried the next round; the last good feed is sent for at most 3 fetch intervals |
+| `SEND_STATIC_INTERVAL` | `60` | Seconds between send rounds, min 30 (old names `UPDATE_INTERVAL`, `GDACS_PULL_INTERVAL`); each round re-sends the current events |
+| `FETCH_INTERVAL` | `600` | Seconds between feed reads, min 600. A failed read is retried the next round; the last good feed is sent for at most 3 fetch intervals |
+| `STALE_SECONDS` | `180` | Marker lifetime; always at least 3 send intervals |
 | `GDACS_ALERT_LEVELS` | (all) | e.g. `Orange,Red` |
 | `TIMEZONE` | `Europe/Helsinki` | Time zone of the published time |
 | `HEALTH_MAX_ERRORS` | `3` | Failed feed reads in a row before the container is unhealthy |
@@ -91,6 +92,11 @@ Changes in this fork (Street3r):
     `FETCH_INTERVAL` (600 s) and the current events are re-sent every
     `UPDATE_INTERVAL` (60 s), so the feed is read less often while a client
     that connects still sees the events within a minute.
+- 2026-10-19
+  - Send intervals shared by all feeders: `SEND_STATIC_INTERVAL` (60 s, min 30,
+    old name `UPDATE_INTERVAL`) and `STALE_SECONDS` (default 180 s, always
+    at least 3 send intervals).
+  - `FETCH_INTERVAL` minimum raised from 60 s to 600 s.
 
 ## License
 
