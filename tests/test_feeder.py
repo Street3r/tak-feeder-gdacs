@@ -4,6 +4,7 @@
 import asyncio
 import unittest
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from unittest import mock
 
 from tak_feeder_gdacs import feeder
@@ -87,11 +88,23 @@ class GdacsTest(unittest.TestCase):
                 self.assertEqual(asyncio.run(src.events()), [])
 
     def test_legacy_interval(self) -> None:
-        with mock.patch.dict("os.environ", {"GDACS_PULL_INTERVAL": "30"}, clear=True):
-            self.assertEqual(feeder.Settings.from_env().update_interval, 60.0)  # min 60
+        with mock.patch.dict("os.environ", {"GDACS_PULL_INTERVAL": "10"}, clear=True):
+            self.assertEqual(feeder.Settings.from_env().send.static, 30.0)  # min 30
         with mock.patch.dict("os.environ", {"GDACS_PULL_INTERVAL": "120"}, clear=True):
-            self.assertEqual(feeder.Settings.from_env().update_interval, 120.0)
+            self.assertEqual(feeder.Settings.from_env().send.static, 120.0)
+        with mock.patch.dict("os.environ", {"FEEDER_SEND_STATIC_INTERVAL": "90"}, clear=True):
+            self.assertEqual(feeder.Settings.from_env().send.static, 90.0)
 
+    def test_fetch_interval_minimum(self) -> None:
+        with mock.patch.dict("os.environ", {"FETCH_INTERVAL": "60"}, clear=True):
+            self.assertEqual(feeder.Settings.from_env().fetch_interval, 600.0)
+
+    def test_stale_three_send_intervals(self) -> None:
+        src = feeder.GdacsSource(feeder.Settings())
+        ev = ET.fromstring(src.parse(feed(item()))[0])
+        start = datetime.fromisoformat(ev.get("start").replace("Z", "+00:00"))
+        stale = datetime.fromisoformat(ev.get("stale").replace("Z", "+00:00"))
+        self.assertEqual((stale - start).total_seconds(), 180)
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,7 +21,7 @@ async def main() -> None:
     setup_logging(tak.debug)
     settings = Settings.from_env()
     LOG.info("tak-feeder-gdacs %s -> %s", __version__, tak.cot_url)
-    await run_feeder(tak, GdacsSource(settings, Health()), settings.update_interval)
+    await run_feeder(tak, GdacsSource(settings, Health()), settings.send.static)
 
 
 def run() -> None:
